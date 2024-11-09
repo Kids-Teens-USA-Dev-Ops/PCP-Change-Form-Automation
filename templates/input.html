@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Paste Excel Row</title>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('excel_row').focus();
+            document.getElementById('excel_row').addEventListener('keydown', function(event) {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    document.getElementById('inputForm').submit();
+                }
+            });
+        });
+    </script>
+</head>
+<body onload="focusInput()">
+    <h1>Paste Patient Data</h1>
+    <form id="inputForm" method="POST" action="/process">
+        <textarea id="excelInput" name="excel_row" rows="4" cols="100" placeholder="Paste your Excel row here" required></textarea>
+        <br><br>
+        <button type="submit">Submit</button>
+    </form>
+
+    <script>
+        function focusInput() {
+            document.getElementById('excelInput').focus();
+        }
+    </script>
+</body>
+</html>
