@@ -1,11 +1,69 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Paste Excel Row</title>
+    <title>PCP Change Form Automation</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #E6EAE6;
+            margin: 0;
+            padding: 20px;
+            color: #1C8B93;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #FEFEFE;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #D29D3A;
+            text-align: center;
+        }
+        textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #D29D3A;
+            border-radius: 4px;
+            resize: vertical;
+        }
+        button {
+            background-color: #1C8B93;
+            color: #FEFEFE;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #D29D3A;
+        }
+        .logo {
+            display: block;
+            margin: 0 auto 20px;
+            max-width: 400px;
+        }
+        .back-link {
+            display: block;
+            margin-top: 20px;
+            text-align: center;
+            color: #1C8B93;
+        }
+        .back-link a {
+            color: #1C8B93;
+            text-decoration: none;
+        }
+        .back-link a:hover {
+            text-decoration: underline;
+        }
+    </style>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            document.getElementById('excel_row').focus();
-            document.getElementById('excel_row').addEventListener('keydown', function(event) {
+            document.getElementById('excelInput').focus();
+            document.getElementById('excelInput').addEventListener('keydown', function(event) {
                 if (event.key === 'Enter') {
                     event.preventDefault();
                     document.getElementById('inputForm').submit();
@@ -14,18 +72,18 @@
         });
     </script>
 </head>
-<body onload="focusInput()">
-    <h1>Paste Patient Data</h1>
-    <form id="inputForm" method="POST" action="/process">
-        <textarea id="excelInput" name="excel_row" rows="4" cols="100" placeholder="Paste your Excel row here" required></textarea>
-        <br><br>
-        <button type="submit">Submit</button>
-    </form>
-
-    <script>
-        function focusInput() {
-            document.getElementById('excelInput').focus();
-        }
-    </script>
+<body>
+    <div class="container">
+        <!-- Reference the logo in the static folder using Flask's url_for -->
+        <img src="{{ url_for('static', filename='logos.png') }}" alt="Logos" class="logo">
+        <h1>Paste PCP Change</h1>
+        <form id="inputForm" method="POST" action="/process">
+            <textarea id="excelInput" name="excel_row" rows="4" placeholder="Paste your Excel row here" required></textarea>
+            <button type="submit">Submit</button>
+        </form>
+        <div class="back-link">
+            <a href="/">Go Back</a>
+        </div>
+    </div>
 </body>
 </html>
