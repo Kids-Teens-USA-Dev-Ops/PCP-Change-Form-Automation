@@ -1,5 +1,6 @@
 from flask import Flask, request, render_template
 from datetime import datetime
+from fillpdf import fillpdfs
 import re
 
 app = Flask(__name__)
@@ -101,6 +102,32 @@ def process_input():
         f"Reason For Change: {reason}\n"
     )
 
+    
+    # Path to the existing PDF form with a text field
+    pdf_template_path = './templates/ktmgPcpForm.pdf'
+
+    output_pdf_path = str(patient_name) + "_" + str(ktmg_member_id) + "_" + "PCP-CHANGE-FORM" + "_" + str(date_from_input)  + ".pdf"
+
+
+    data_dict = {
+        'reqDate': f"{date_from_input}",
+        'memberID': f"{member_id}",
+        'ecwID': f"{ktmg_member_id}",
+        'memberName': f"{patient_name}",
+        'mdob': f"{dob}",
+        'phoneNum': f"{formatted_number}",
+        'oldPCP': f"{old_pcp}",
+        'newPCP': f"{new_pcp}",
+        'effectiveDate': f"{eff_date}",
+        'agentName': f"{agent_name}",
+        'fReason': f"{reason}"
+    }
+
+    fillpdfs.write_fillable_pdf(pdf_template_path, output_pdf_path, data_dict, flatten=True)
+
+    fillpdfs.print_form_fields(output_pdf_path)
+    
+    
     # Return debug output as plain text
     return f"<pre>{debug_output}</pre>"
 
