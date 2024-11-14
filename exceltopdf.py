@@ -106,7 +106,7 @@ def process_input():
     # Path to the existing PDF form with a text field
     pdf_template_path = './templates/ktmgPcpForm.pdf'
 
-    output_pdf_path = str(patient_name) + "_" + str(ktmg_member_id) + "_" + "PCP-CHANGE-FORM" + "_" + str(date_from_input)  + ".pdf"
+    output_pdf_path = './pdf_output/' + str(patient_name) + "_" + str(ktmg_member_id) + "_" + "PCP-CHANGE-FORM" + "_" + str(date_from_input)  + ".pdf"
 
 
     data_dict = {
