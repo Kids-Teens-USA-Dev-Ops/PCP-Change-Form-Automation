@@ -88,7 +88,8 @@ def process_input():
     # Path to the existing PDF form with a text field
     pdf_template_path = './templates/ktmgPcpForm.pdf'
     output_pdf_name = f"{patient_name}_{ktmg_member_id}_PCP-CHANGE-FORM_{date_from_input.replace('/', '-')}.pdf"
-    output_pdf_path = os.path.expanduser(f"~/Downloads/{output_pdf_name}")
+    #output_pdf_path = os.path.expanduser(f"~/Downloads/{output_pdf_name}")
+    output_pdf_path = "./finished-pdfs/" + output_pdf_name
 
     data_dict = {
         'reqDate': date_from_input,
