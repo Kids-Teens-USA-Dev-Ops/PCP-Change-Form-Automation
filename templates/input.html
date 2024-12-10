@@ -46,6 +46,16 @@
             margin: 0 auto 20px;
             max-width: 400px;
         }
+        .flash-message {
+            background-color: #FFE6E6;
+            color: #D8000C;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            border: 1px solid #D8000C;
+            text-align: center;
+            font-weight: bold;
+        }
     </style>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
@@ -61,6 +71,13 @@
 </head>
 <body>
     <div class="container">
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="flash-message">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
         <!-- Reference the logo in the static folder using Flask's url_for -->
         <img src="{{ url_for('static', filename='logos.png') }}" alt="Logos" class="logo">
         <h1>Paste PCP Change</h1>
