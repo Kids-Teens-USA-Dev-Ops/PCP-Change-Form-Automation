@@ -1,8 +1,10 @@
-from flask import Flask, request, render_template, flash
+import os
+import tempfile
+from flask import Flask, request, render_template, flash, send_file
 from datetime import datetime
 import re
-import os
 from fillpdf import fillpdfs
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key_here'  # Required for flash messages
@@ -275,61 +277,57 @@ def process_input():
     processed_files = []
     error_occurred = False
     
-    for patient in patient_pairs:
-        # Parse the note associated with this patient
-        note_info = parse_pcp_note(patient['note'])
+    with tempfile.TemporaryDirectory() as temp_dir:
+        for patient in patient_pairs:
+            # Parse the note associated with this patient
+            note_info = parse_pcp_note(patient['note'])
+            
+            # Check if we have the essential information
+            if not note_info['new_pcp'] or not note_info['eff_date']:
+                flash("Error: Could not find required information (new PCP name or effective date) in the note.", "error")
+                return render_template('input.html')
+            
+            # Combine patient info with note info
+            data_dict = {
+                'reqDate': patient['date'],
+                'memberID': patient['member_id'],
+                'ecwID': "New Patient" if not patient['ktmg_id'] else patient['ktmg_id'],
+                'memberName': patient['patient_name'],
+                'mdob': patient['dob'],
+                'phoneNum': patient['phone'],
+                'oldPCP': patient['old_pcp'],
+                'newPCP': note_info['new_pcp'],
+                'effectiveDate': note_info['eff_date'],
+                'agentName': note_info['agent_name'],
+                'fReason': "Patient Requested Change"
+            }
+            
+            # Generate PDF
+            pdf_template_path = './templates/ktmgPcpForm.pdf'
+            # Sanitize the filename components
+            safe_name = sanitize_filename(patient['patient_name'])
+            safe_id = patient['ktmg_id']  # Already cleaned up in extract_patient_data
+            safe_date = patient['date'].replace('/', '-')
+            
+            output_pdf_name = f"{safe_name}_{safe_id}_PCP-CHANGE-FORM_{safe_date}.pdf"
+            output_pdf_path = os.path.join(temp_dir, output_pdf_name)
+            
+            try:
+                # Write PDF with flatten=True to make it non-editable
+                fillpdfs.write_fillable_pdf(pdf_template_path, output_pdf_path, data_dict, flatten=True)
+                processed_files.append(output_pdf_name)
+            except Exception as e:
+                flash(f"Error processing file: {str(e)}", "error")
+                error_occurred = True
+                break
         
-        # Check if we have the essential information
-        if not note_info['new_pcp'] or not note_info['eff_date']:
-            flash("Error: Could not find required information (new PCP name or effective date) in the note.", "error")
+        if error_occurred:
             return render_template('input.html')
         
-        # Combine patient info with note info
-        data_dict = {
-            'reqDate': patient['date'],
-            'memberID': patient['member_id'],
-            'ecwID': "New Patient" if not patient['ktmg_id'] else patient['ktmg_id'],
-            'memberName': patient['patient_name'],
-            'mdob': patient['dob'],
-            'phoneNum': patient['phone'],
-            'oldPCP': patient['old_pcp'],
-            'newPCP': note_info['new_pcp'],
-            'effectiveDate': note_info['eff_date'],
-            'agentName': note_info['agent_name'],
-            'fReason': "Patient Requested Change"
-        }
-        
-        # Generate PDF
-        pdf_template_path = './templates/ktmgPcpForm.pdf'
-        # Sanitize the filename components
-        safe_name = sanitize_filename(patient['patient_name'])
-        safe_id = patient['ktmg_id']  # Already cleaned up in extract_patient_data
-        safe_date = patient['date'].replace('/', '-')
-        
-        output_pdf_name = f"{safe_name}_{safe_id}_PCP-CHANGE-FORM_{safe_date}.pdf"
-        output_pdf_path = os.path.expanduser(f"~/Downloads/{output_pdf_name}")
-        
-        # Check if file already exists
-        if os.path.exists(output_pdf_path):
-            flash(f"Error: File already exists: {output_pdf_name}. Please try again.", "error")
-            return render_template('input.html')
-        
-        try:
-            # Write PDF with flatten=True to make it non-editable
-            fillpdfs.write_fillable_pdf(pdf_template_path, output_pdf_path, data_dict, flatten=True)
-            processed_files.append(output_pdf_name)
-        except Exception as e:
-            flash(f"Error processing file: {str(e)}", "error")
-            error_occurred = True
-            break
-    
-    if error_occurred:
-        return render_template('input.html')
-    
-    if len(processed_files) == 1:
-        return render_template('confirmation.html', file_name=processed_files[0])
-    else:
-        return render_template('confirmation.html', file_name=f"Generated {len(processed_files)} forms")
+        if len(processed_files) == 1:
+            return send_file(os.path.join(temp_dir, processed_files[0]), as_attachment=True, download_name=processed_files[0])
+        else:
+            return render_template('confirmation.html', file_name=f"Generated {len(processed_files)} forms")
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run()
