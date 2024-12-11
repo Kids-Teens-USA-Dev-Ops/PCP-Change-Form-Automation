@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Confirmation</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #E6EAE6;
+            padding: 20px;
+            color: #1C8B93;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #FEFEFE;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        button {
+            background-color: #1C8B93;
+            color: #FEFEFE;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #D29D3A;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>File Created Successfully!</h1>
+        <p>Your file has been saved to your default Downloads folder as <strong>{{ file_name }}</strong>.</p>
+        <p>Please press the button below to process a new request.</p>
+        <button onclick="window.location.href='/'">New Request</button>
+    </div>
+
+    <script>
+        let checkInterval;
+        let isShuttingDown = false;
+
+        function startHealthCheck() {
+            checkInterval = setInterval(() => {
+                if (!isShuttingDown) {
+                    fetch('/health', {
+                        method: 'GET',
+                        cache: 'no-cache'
+                    }).catch(() => {
+                        if (checkInterval) {
+                            clearInterval(checkInterval);
+                        }
+                    });
+                }
+            }, 5000);
+        }
+
+        async function shutdownServer() {
+            if (!isShuttingDown) {
+                isShuttingDown = true;
+                if (checkInterval) {
+                    clearInterval(checkInterval);
+                }
+                
+                try {
+                    await fetch('/shutdown', {
+                        method: 'GET',
+                        cache: 'no-cache'
+                    });
+                } catch (e) {
+                    console.error('Shutdown error:', e);
+                }
+            }
+        }
+
+        function goBack() {
+            isShuttingDown = true;
+            if (checkInterval) {
+                clearInterval(checkInterval);
+            }
+            window.location.href = '/';
+        }
+
+        startHealthCheck();
+
+        window.addEventListener('beforeunload', function(e) {
+            if (!isShuttingDown) {
+                shutdownServer();
+            }
+        });
+
+        document.addEventListener('visibilitychange', function() {
+            if (document.visibilityState === 'hidden' && !isShuttingDown) {
+                shutdownServer();
+            }
+        });
+
+        // Update the button onclick to use the new goBack function
+        document.querySelector('button').onclick = goBack;
+    </script>
+</body>
+</html>

@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PCP Change Form Automation</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #E6EAE6;
+            margin: 0;
+            padding: 20px;
+            color: #1C8B93;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #FEFEFE;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #D29D3A;
+            text-align: center;
+        }
+        textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #D29D3A;
+            border-radius: 4px;
+            resize: vertical;
+        }
+        button {
+            background-color: #1C8B93;
+            color: #FEFEFE;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #D29D3A;
+        }
+        .logo {
+            display: block;
+            margin: 0 auto 20px;
+            max-width: 400px;
+        }
+        .alert {
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+        }
+        .alert-error {
+            background-color: #ffebee;
+            color: #c62828;
+            border: 1px solid #ef9a9a;
+        }
+        .alert-success {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+            border: 1px solid #a5d6a7;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <img src="{{ url_for('static', filename='logos.png') }}" alt="Logos" class="logo">
+        <h1>Paste PCP Change</h1>
+        
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert {% if category == 'error' %}alert-error{% else %}alert-success{% endif %}">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        
+        <form id="inputForm" method="POST" action="/process">
+            <textarea id="excelInput" name="excel_row" rows="4" placeholder="Paste your Excel row here" required></textarea>
+            <button type="submit">Submit</button>
+        </form>
+    </div>
+
+    <script>
+        // Form submission handling
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('excelInput').focus();
+            document.getElementById('excelInput').addEventListener('keydown', function(event) {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    submitForm();
+                }
+            });
+        });
+
+        let checkInterval;
+        let isShuttingDown = false;
+
+        function startHealthCheck() {
+            checkInterval = setInterval(() => {
+                if (!isShuttingDown) {
+                    fetch('/health', {
+                        method: 'GET',
+                        cache: 'no-cache'
+                    }).catch(() => {
+                        if (checkInterval) {
+                            clearInterval(checkInterval);
+                        }
+                    });
+                }
+            }, 5000);
+        }
+
+        async function shutdownServer() {
+            if (!isShuttingDown) {
+                isShuttingDown = true;
+                if (checkInterval) {
+                    clearInterval(checkInterval);
+                }
+                
+                try {
+                    await fetch('/shutdown', {
+                        method: 'GET',
+                        cache: 'no-cache'
+                    });
+                } catch (e) {
+                    console.error('Shutdown error:', e);
+                }
+            }
+        }
+
+        function submitForm() {
+            const form = document.getElementById('inputForm');
+            if (form) {
+                isShuttingDown = true;
+                if (checkInterval) {
+                    clearInterval(checkInterval);
+                }
+                form.submit();
+            }
+        }
+
+        startHealthCheck();
+
+        window.addEventListener('beforeunload', function(e) {
+            if (!isShuttingDown) {
+                shutdownServer();
+            }
+        });
+
+        document.addEventListener('visibilitychange', function() {
+            if (document.visibilityState === 'hidden' && !isShuttingDown) {
+                shutdownServer();
+            }
+        });
+
+        document.getElementById('inputForm').addEventListener('submit', function(e) {
+            submitForm();
+        });
+    </script>
+</body>
+</html>

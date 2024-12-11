@@ -1,11 +1,78 @@
-from flask import Flask, request, render_template, flash
+from flask import Flask, request, render_template, flash, Response, redirect, url_for
+import requests
+import signal
+import threading
 from datetime import datetime
+import time
 import re
 import os
 from fillpdf import fillpdfs
+import sys
+import webbrowser
+from threading import Timer
+from werkzeug.serving import make_server
+import socket
 
-app = Flask(__name__)
-app.secret_key = 'your_secret_key_here'  # Required for flash messages
+#globals
+shutdown_event = threading.Event()
+_processing_request = False
+
+class ServerThread(threading.Thread):
+    def __init__(self, app, port):
+        threading.Thread.__init__(self, daemon=True)
+        self.port = port
+        self.app = app
+        self.server = make_server('127.0.0.1', port, app)
+        self.ctx = app.app_context()
+        self.ctx.push()
+        self.is_running = True
+        self.error_count = 0
+
+    def run(self):
+        try:
+            self.server.serve_forever()
+        except Exception as e:
+            self.error_count += 1
+            if self.error_count > 5:
+                self.is_running = False
+            else:
+                try:
+                    self.server = make_server('127.0.0.1', self.port, self.app)
+                    self.server.serve_forever()
+                except Exception:
+                    self.is_running = False
+
+    def shutdown(self):
+        self.is_running = False
+        try:
+            self.server.shutdown()
+        except Exception:
+            pass
+
+def resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller"""
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
+def find_free_port():
+    """Find a free port on the system"""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(('', 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    return port
+
+def open_browser(port):
+    """Open browser after a short delay"""
+    webbrowser.open(f'http://127.0.0.1:{port}/')
+
+app = Flask(__name__,
+           template_folder=resource_path('templates'),
+           static_folder=resource_path('static'))
+app.secret_key = 'your_secret_key_here'
 
 def sanitize_filename(filename):
     """Sanitize filename to remove invalid characters."""
@@ -246,90 +313,166 @@ def parse_input(text):
 def upload_page():
     return render_template('input.html')
 
+@app.before_request
+def before_request():
+    global _processing_request
+    _processing_request = True
+
+@app.after_request
+def after_request(response):
+    global _processing_request
+    _processing_request = False
+    return response
+
 @app.route('/process', methods=['POST'])
 def process_input():
-    input_text = request.form['excel_row']
-    
-    # First, check if it contains common non-PCP change patterns
-    non_pcp_patterns = [
-        'LEFT MESSAGE',
-        'LEFT MESSAGE/ TEXT',
-        'VOICEMAIL',
-        'NEED REFERRALS',
-        'PT NEED REFERRALS',
-        'NEED AUTH',
-        'PENDING'
-    ]
+    try:
+        input_text = request.form.get('excel_row', '')
+        
+        # Basic input validation
+        if not input_text or len(input_text.strip()) == 0:
+            flash("Error: Empty input received. Please paste valid data.", "error")
+            return redirect(url_for('upload_page'))
+            
+        # First, check if it contains common non-PCP change patterns
+        non_pcp_patterns = [
+            'LEFT MESSAGE',
+            'LEFT MESSAGE/ TEXT',
+            'VOICEMAIL',
+            'NEED REFERRALS',
+            'PT NEED REFERRALS',
+            'NEED AUTH',
+            'PENDING'
+        ]
 
-    if any(pattern in input_text.upper() for pattern in non_pcp_patterns) and not any(phrase in input_text.upper() for phrase in ['PCP CHANGE', 'CHANGE TO DR']):
-        flash("This input appears to be a message or referral request, not a PCP change. Please ensure your input includes a PCP change note with doctor name and effective date.", "error")
-        return render_template('input.html')
-    
-    # Parse input and get patient-note pairs
-    patient_pairs = parse_input(input_text)
-    
-    if not patient_pairs:
-        flash("Error: No valid PCP change found. Input should include a PCP change note with doctor name and effective date, followed by patient information.", "error")
-        return render_template('input.html')
-    
-    processed_files = []
-    error_occurred = False
-    
-    for patient in patient_pairs:
-        # Parse the note associated with this patient
-        note_info = parse_pcp_note(patient['note'])
+        if any(pattern in input_text.upper() for pattern in non_pcp_patterns) and not any(phrase in input_text.upper() for phrase in ['PCP CHANGE', 'CHANGE TO DR']):
+            flash("This input appears to be a message or referral request, not a PCP change. Please ensure your input includes a PCP change note with doctor name and effective date.", "error")
+            return redirect(url_for('upload_page'))
         
-        # Check if we have the essential information
-        if not note_info['new_pcp'] or not note_info['eff_date']:
-            flash("Error: Could not find required information (new PCP name or effective date) in the note.", "error")
-            return render_template('input.html')
-        
-        # Combine patient info with note info
-        data_dict = {
-            'reqDate': patient['date'],
-            'memberID': patient['member_id'],
-            'ecwID': "New Patient" if not patient['ktmg_id'] else patient['ktmg_id'],
-            'memberName': patient['patient_name'],
-            'mdob': patient['dob'],
-            'phoneNum': patient['phone'],
-            'oldPCP': patient['old_pcp'],
-            'newPCP': note_info['new_pcp'],
-            'effectiveDate': note_info['eff_date'],
-            'agentName': note_info['agent_name'],
-            'fReason': "Patient Requested Change"
-        }
-        
-        # Generate PDF
-        pdf_template_path = './templates/ktmgPcpForm.pdf'
-        # Sanitize the filename components
-        safe_name = sanitize_filename(patient['patient_name'])
-        safe_id = patient['ktmg_id']  # Already cleaned up in extract_patient_data
-        safe_date = patient['date'].replace('/', '-')
-        
-        output_pdf_name = f"{safe_name}_{safe_id}_PCP-CHANGE-FORM_{safe_date}.pdf"
-        output_pdf_path = os.path.expanduser(f"~/Downloads/{output_pdf_name}")
-        
-        # Check if file already exists
-        if os.path.exists(output_pdf_path):
-            flash(f"Error: File already exists: {output_pdf_name}. Please try again.", "error")
-            return render_template('input.html')
-        
+        # Parse input and get patient-note pairs
         try:
-            # Write PDF with flatten=True to make it non-editable
-            fillpdfs.write_fillable_pdf(pdf_template_path, output_pdf_path, data_dict, flatten=True)
-            processed_files.append(output_pdf_name)
+            patient_pairs = parse_input(input_text)
         except Exception as e:
-            flash(f"Error processing file: {str(e)}", "error")
-            error_occurred = True
-            break
+            flash("Error: Unable to parse input. Please ensure you're pasting the correct format.", "error")
+            return redirect(url_for('upload_page'))
+        
+        if not patient_pairs:
+            flash("Error: No valid PCP change found. Input should include a PCP change note with doctor name and effective date, followed by patient information.", "error")
+            return redirect(url_for('upload_page'))
+        
+        processed_files = []
+        
+        for patient in patient_pairs:
+            try:
+                # Parse the note associated with this patient
+                note_info = parse_pcp_note(patient['note'])
+                
+                # Check if we have the essential information
+                if not note_info['new_pcp'] or not note_info['eff_date']:
+                    flash("Error: Could not find required information (new PCP name or effective date) in the note.", "error")
+                    return redirect(url_for('upload_page'))
+                
+                # Combine patient info with note info
+                data_dict = {
+                    'reqDate': patient['date'],
+                    'memberID': patient['member_id'],
+                    'ecwID': "New Patient" if not patient['ktmg_id'] else patient['ktmg_id'],
+                    'memberName': patient['patient_name'],
+                    'mdob': patient['dob'],
+                    'phoneNum': patient['phone'],
+                    'oldPCP': patient['old_pcp'],
+                    'newPCP': note_info['new_pcp'],
+                    'effectiveDate': note_info['eff_date'],
+                    'agentName': note_info['agent_name'],
+                    'fReason': "Patient Requested Change"
+                }
+                
+                # Generate PDF
+                pdf_template_path = resource_path('templates/ktmgPcpForm.pdf')
+                safe_name = sanitize_filename(patient['patient_name'])
+                safe_id = patient['ktmg_id']
+                safe_date = patient['date'].replace('/', '-')
+                
+                output_pdf_name = f"{safe_name}_{safe_id}_PCP-CHANGE-FORM_{safe_date}.pdf"
+                output_pdf_path = os.path.expanduser(f"~/Downloads/{output_pdf_name}")
+                
+                if os.path.exists(output_pdf_path):
+                    flash(f"Error: File already exists: {output_pdf_name}. Please try again.", "error")
+                    return redirect(url_for('upload_page'))
+                
+                fillpdfs.write_fillable_pdf(pdf_template_path, output_pdf_path, data_dict, flatten=True)
+                processed_files.append(output_pdf_name)
+                
+            except Exception as e:
+                flash(f"Error processing file: {str(e)}", "error")
+                return redirect(url_for('upload_page'))
+        
+        if len(processed_files) == 1:
+            return redirect(url_for('confirmation_page', file_name=processed_files[0]))
+        else:
+            return redirect(url_for('confirmation_page', file_name=f"Generated {len(processed_files)} forms"))
+            
+    except Exception as e:
+        flash(f"An error occurred: {str(e)}", "error")
+        return redirect(url_for('upload_page'))
+
+@app.route('/confirmation')
+def confirmation_page():
+    file_name = request.args.get('file_name', '')
+    return render_template('confirmation.html', file_name=file_name)
+
+@app.route('/shutdown')
+def shutdown():
+    global _processing_request, shutdown_event
     
-    if error_occurred:
-        return render_template('input.html')
+    def delayed_shutdown():
+        global _processing_request
+        start_time = time.time()
+        while _processing_request:
+            time.sleep(0.1)
+            if time.time() - start_time > 5:  # Timeout after 5 seconds
+                break
+        shutdown_event.set()
+        time.sleep(0.5)
+        os._exit(0)
     
-    if len(processed_files) == 1:
-        return render_template('confirmation.html', file_name=processed_files[0])
-    else:
-        return render_template('confirmation.html', file_name=f"Generated {len(processed_files)} forms")
+    if not getattr(app, 'is_shutting_down', False):
+        app.is_shutting_down = True
+        threading.Thread(target=delayed_shutdown, daemon=True).start()
+    return 'Shutting down...'
+
+@app.route('/health')
+def health_check():
+    return Response(status=200)
+
+def main():
+    max_retries = 3
+    retry_count = 0
+    
+    while retry_count < max_retries:
+        try:
+            port = find_free_port()
+            
+            server = ServerThread(app, port)
+            server.start()
+            Timer(1.5, open_browser, [port]).start()
+            
+            while server.is_running and not shutdown_event.is_set():
+                time.sleep(0.5)
+                if not server.is_alive():
+                    break
+                    
+            if shutdown_event.is_set():
+                break
+                
+            retry_count += 1
+            time.sleep(1)
+            
+        except Exception:
+            retry_count += 1
+            time.sleep(1)
+    
+    os._exit(0)
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    main()
